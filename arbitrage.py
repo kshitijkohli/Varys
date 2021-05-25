@@ -1,9 +1,12 @@
-import requests, json, csv, operator
+import requests, json, csv, operator, sys
 from collections import namedtuple
 from itertools import islice
-import csv
 
 PRICE_EPSILON = 0.00000001
+ZEBPAY = "zebpay"
+WAZIR = "wazir"
+BINANCE = "binance"
+
 
 def take(n, iterable):
     "Return first n items of the iterable as a list"
@@ -27,10 +30,6 @@ def getWazirData():
         data = getData(URL)
         data = {k.upper(): [float(v["buy"]), float(v["sell"])] for k,v in data.items()}
         return data
-        #print(data)
-##        for k,v in data.items():
-##            if v[0] < PRICE_EPSILON:
-##                print(k)
 
 def getZebpayData():
         URL = 'https://www.zebapi.com/pro/v1/market/'
@@ -78,6 +77,7 @@ zeroFeeListWB = {"usdt","btc","bnb","wrx","zil","eth","ada","link","waves","band
                  "dot","xem","yfi","ren","egld","grs","comp","kava","aave","cos","inj","snx","sushi","dock","avax","iotx","aion","bal","bnt","uma","ksm",
                  "luna","grt","paxg","zrx","ankr","xym","ckb","vib","paxg","gto","tko","crv","mana","dexe","etc","ftm","fet","fil","win","sc","cvc",
                  "cake","iost","ftt","avax","luna","ava","xvg","shib","kmd"}
+exceptionListWB = {"BCHSVUSDT"}
 
 
 def filterZeroFeeWB(diff):
@@ -89,27 +89,47 @@ def filterZeroFeeWB(diff):
                                 filtered.append(trade)
         return filtered
 
-def calcArbitrage(code):
-        
+def query(code):
+        # compute arbitrage Binance-Wazirx
         if code == 0:
-                diff = calcDiff(getBinanceData(), getWazirData(), "binance", "wazir")
-                diff = filterZeroFeeWB(diff)
+                diff = calcDiff(getBinanceData(), getWazirData(), BINANCE, WAZIR)
+                diff = list(filter(lambda i: i["symbol"] not in exceptionListWB, diff))
                 return diff
-        elif code == 1:
-                diff = calcDiff(getZebpayData(), getWazirData(), "zebpay", "wazir")
-                return diff
-                
-        print ("invalid input code")
 
+        #compute arbitrage Zebpay-Wazirx
+        elif code == 1:
+                diff = calcDiff(getZebpayData(), getWazirData(), ZEBPAY, WAZIR)
+                return diff
+
+        # compute arbitrage Binance-Wazirx only for 0 transfer fee coins
+        elif code == 2:
+                diff = query(0)
+                return filterZeroFeeWB(diff)
+
+        # compare zebpay vs wazir with BUY at ZEBPAY
+        elif code == 3:
+                diff = query(1)
+                diff = list(filter(lambda i: i["variation"] * (i[WAZIR]- i[ZEBPAY]) > -PRICE_EPSILON, diff))
+                diff.sort(key = lambda i: i['variation'], reverse = True)
+                return diff
+
+        # compare zebpay vs wazir with BUY at WAZIR
+        elif code == 4:
+                diff = query(1)
+                diff = list(filter(lambda i: i["variation"] * (i[ZEBPAY]- i[WAZIR]) > -PRICE_EPSILON, diff))
+                diff.sort(key = lambda i: i['variation'], reverse = True)
+                return diff
+        
+        print ("invalid input code") 
 
 def main():
-        diff = calcArbitrage(1)
-        
+        code = 0
+        if len(sys.argv) > 1:
+                code = int (sys.argv[1])
 
-        exceptionList = {"BCHSVUSDT"}	
-        arbitrageList = list(filter(lambda i: i["symbol"] not in exceptionList, diff)) 
+        diff = query(code)
 	
-        for coin in arbitrageList[:20]:
+        for coin in diff[:20]:
                 print(coin)
 
 ##        keys = arbitrageList[0].keys()
